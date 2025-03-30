@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["STIRAP_LA_Lakers","dBz/dz_nr"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

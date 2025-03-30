@@ -1,0 +1,8 @@
+{
+    "non_parity_switches": ["STIRAP_690_half_wave_angle","STIRAP_1090_half_wave_angle"],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "L"
+    ]
+}

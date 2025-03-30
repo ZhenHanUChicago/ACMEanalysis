@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["D", "Readout_LA_Clippers"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

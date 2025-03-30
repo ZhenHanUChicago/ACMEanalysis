@@ -1,0 +1,5 @@
+{
+    "min_number_of_good_groups" : 10,
+    "min_C" : 0,
+    "max_C" : 100000
+}
