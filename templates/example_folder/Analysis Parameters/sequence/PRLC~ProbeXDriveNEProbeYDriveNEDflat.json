@@ -1,0 +1,9 @@
+{
+    "non_parity_switches": ["Probe_X_Drive_NE", "Probe_Y_Drive_NE", "Dflat"],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "L",
+        "C"
+    ]
+}

@@ -1,0 +1,9 @@
+{
+    "non_parity_switches": ["Delta_P_703","Dflat"],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "L",
+        "C"
+    ]
+}

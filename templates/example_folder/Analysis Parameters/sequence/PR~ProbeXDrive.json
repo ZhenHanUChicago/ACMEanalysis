@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["Probe_X_Drive"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

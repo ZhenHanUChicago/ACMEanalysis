@@ -204,7 +204,7 @@ class binVisualizer:
         fig.tight_layout()
         return fig, (ax1,ax2)
     
-    def _inspect_binning(self, inspect_begin_ms=7, filestring = ""):
+    def _inspect_binning(self, inspect_begin_ms = 9,  filestring = ""):
         # Updating bin_offset and bin_size references
         while self.parameter.bin_offset < 0:
             self.parameter.bin_offset += self.parameter.bin_size
@@ -258,7 +258,6 @@ class binVisualizer:
         redlist = np.array(redlist)
         bluelist = np.array(bluelist)
         blacklist = np.array(blacklist)
-
         # Updated the data source for inspect_data
         inspect_data = self.binresult.bin_pair_inspection_data[inspect_begin_bin_index, :].reshape(-1)
 
@@ -294,7 +293,34 @@ class binVisualizer:
                     ascending_crossings.append(crossing_idx)
 
             return descending_crossings, ascending_crossings
+        
+        def __center_of_mass(arr, mask):
+            """
+            Calculate the center of mass of a 1D density distribution.
 
+            Parameters:
+            - arr (np.ndarray): 1D array of density values.
+            - mask (np.ndarray): 1D binary array (same shape as arr), where 1 includes the point, 0 excludes it.
+
+            Returns:
+            - float: center of mass in index units.
+            """
+            arr = np.asarray(arr)
+            mask = np.asarray(mask)
+            
+            if arr.shape != mask.shape:
+                raise ValueError("arr and mask must have the same shape.")
+            
+            indices = np.arange(len(arr))
+            weighted_density = arr * mask
+            total_mass = np.sum(weighted_density)
+
+            if total_mass == 0:
+                raise ValueError("Total mass is zero; cannot compute center of mass.")
+            
+            center = np.sum(indices * weighted_density) / total_mass
+            return center
+        
         try:
             x_d, x_a = __find_crossings(normalized_x, threshold=0.5)
             y_d, y_a = __find_crossings(normalized_y, threshold=0.5)
@@ -302,9 +328,15 @@ class binVisualizer:
             ax4.scatter(x_a, [0.5] * len(x_a), color='blue')
             ax4.scatter(y_d, [0.5] * len(y_d), color='red')
             ax4.scatter(y_a, [0.5] * len(y_a), color='red')
+            #print("normalized_x", len(normalized_x), normalized_x)
+            #print("binpara", self.binresult.x_mask[:int(self.parameter.bin_size/2)])
+            cm_x = __center_of_mass(normalized_x, self.binresult.x_mask[:int(self.parameter.bin_size/2)])
+            cm_y = __center_of_mass(normalized_y, self.binresult.y_mask[int(self.parameter.bin_size/2):])
+            ax4.scatter(cm_x,0.5, color='blue', marker='x', s=40, label='X CoM')
+            ax4.scatter(cm_y,0.5, color='red', marker='x', s=40, label='Y CoM')
             # print(x_d, x_a, y_d, y_a)
             try:
-                ax4.set_title("Bin misalignment X-Y={0:.1f} ns".format(((x_d[0] - y_d[0]) + (x_a[0] - y_a[0])) / 2 * 80), fontsize=24)
+                ax4.set_title("Bin misalignment X-Y={0:.1f} ns (c.m.)".format( (cm_x - cm_y) *80), fontsize=24)
             except:
                 pass
             fig.suptitle('X-Y polarization comparison reports\n' + filestring +'\n Bin Offset = ' + str(self.parameter.bin_offset), fontsize=30)
@@ -315,7 +347,7 @@ class binVisualizer:
                 ax.set_xlabel('Sample time index, 1 sample = {0}ns'.format(80), fontsize=16)
                 ax.tick_params(axis='both', which='major', labelsize=12)
             try:
-                ax5.set_title("x_d:{0:.1f}, x_a:{1:.1f}, y_d:{2:.1f}, y_a:{3:.1f}".format(x_d[0], x_a[0], y_d[0], y_a[0]), fontsize=14)
+                ax5.set_title("x_d:{0:.1f}, x_a:{1:.1f}, y_d:{2:.1f}, y_a:{3:.1f} \n cm_x (ns):{4:f}, cm_y (ns):{5:f}".format(x_d[0], x_a[0], y_d[0], y_a[0], cm_x*80, cm_y*80), fontsize=14)
             except:
                 pass
             ax1.set_xlabel('ms')

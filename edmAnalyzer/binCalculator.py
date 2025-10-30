@@ -66,6 +66,8 @@ class binCalculator:
             self.y_mask = None # pre swap y_mask
             self.swap_xy = None
             self.F = None
+            self.Fx = None
+            self.Fy = None
 
     def __init__(self, binary_file_path, parameter_file_path, df_slice):
         # Initialization
@@ -286,6 +288,8 @@ class binCalculator:
         self.grouped_Fy =  self.ungrouped_Fy[..., :truncated_bin_size].reshape(new_dimension)
         self.grouped_F = self.grouped_Fx - self.grouped_Fy
         self.binresult.F = self.grouped_F.sum(axis = -1)
+        self.binresult.Fx = self.grouped_Fx.sum(axis = -1)
+        self.binresult.Fy = self.grouped_Fy.sum(axis = -1)
         self.grouped_N_total =  self.ungrouped_N_total[..., :truncated_bin_size].reshape(new_dimension)
         self.grouped_asymmetry =  self.ungrouped_asymmetry[..., :truncated_bin_size].reshape(new_dimension)
 

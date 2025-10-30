@@ -1,0 +1,32 @@
+{
+  "bin_mask": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "bin_size": 50,
+  "bin_offset": 8,
+  "background_begin_time_ms": 0,
+  "background_end_time_ms": 0.4,
+  "background_average_level": "trace",
+  "background_D_mode": "equal",
+  "noisechannel": [],
+  "noisechannel_substraction": false,
+  "group_size": 20,
+  "sum_shot": true,
+  "ACMEIII_header_purge": true,
+  "trace_already_summed": true,
+  "file_dtype": "int32",
+  "info_header_length": 2,
+  "channel_weight": [
+    -0.03963429,
+    -0.03918644,
+    -0.03918644,
+    -0.04009249,
+    -0.03986207,
+    -0.03853333,
+    -0.0387486,
+    -0.0387486
+  ]
+}

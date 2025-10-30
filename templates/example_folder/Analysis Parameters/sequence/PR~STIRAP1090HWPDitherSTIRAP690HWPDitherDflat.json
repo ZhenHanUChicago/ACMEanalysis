@@ -1,0 +1,11 @@
+{
+    "non_parity_switches": [
+        "STIRAP_1090_HWP_Dither",
+        "STIRAP_690_HWP_Dither",
+        "Dflat"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

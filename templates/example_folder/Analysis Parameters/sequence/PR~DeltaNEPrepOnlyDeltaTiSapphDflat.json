@@ -1,0 +1,11 @@
+{
+    "non_parity_switches": [
+        "Delta_NE_PrepOnly",
+        "Delta_TiSapph",
+        "Dflat"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

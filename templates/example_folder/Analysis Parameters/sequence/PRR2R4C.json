@@ -1,0 +1,10 @@
+{
+    "non_parity_switches": [],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "R2",
+        "R4",
+        "C"
+    ]
+}

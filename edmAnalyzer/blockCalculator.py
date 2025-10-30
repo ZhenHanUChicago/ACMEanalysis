@@ -70,8 +70,6 @@ class blockCalculator:
             self.state_labels = None
             self.red_chi_square_trace_shot_A = None
 
-
-
     def __init__(self, blockpara_json_path = None, binresults_path_list = None, bincutresult_path_list = None, blockresult_path = None, df = None, phi_B_over_tau = None, blind_path = None):
         self.P, self.parity_labels, self.switch_labels = parityStateTransform(channelName= ['N','E','B'])
         self.blind = None

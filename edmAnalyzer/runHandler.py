@@ -14,7 +14,7 @@ from .sequenceVisualizer import sequenceVisualizer
 
 import os
 import pandas as pd
-from itertools import product
+from itertools import product, combinations
 import json
 import glob
 import gc
@@ -26,6 +26,9 @@ from tqdm import tqdm
 import subprocess
 import warnings
 from IPython.display import clear_output
+from joblib import Parallel, delayed
+
+
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -57,9 +60,79 @@ class runHandler:
         self.initialize_run_folder()
         self.set_binary_data_folder_paths([r"C:\ACMEdata\data"+str(sequence)])
         self.touch()
+    
+    def _sequence_instruction_maker(self, sequence_type):
+        """
+        Processes a sequence_type input (string, list, or dictionary) and creates JSON files
+        in the folder:
+            C:\\ACMEcode\\ACMEanalysis\\templates\\example_folder\\Analysis Parameters\\sequence
 
-    def new_pipeline(self, name = "noise", run = 9 , sequence = 1210, sequence_type = None):
-        work_folder = runHandler.create_work_folder(name, run, sequence, sequence_type=sequence_type)
+        Returns:
+            List of filenames (without .json) created or directly appended.
+        """
+        
+        # Define output folder
+        output_folder = r"C:\ACMEcode\ACMEanalysis\templates\example_folder\Analysis Parameters\sequence"
+        os.makedirs(output_folder, exist_ok=True)
+        
+        # Normalize input into a list
+        if isinstance(sequence_type, (str, dict)):
+            sequence_list = [sequence_type]
+        elif isinstance(sequence_type, list):
+            sequence_list = sequence_type
+        else:
+            raise TypeError("sequence_type must be a string, list, or dictionary.")
+        
+        result = []
+
+        for element in sequence_list:
+            if isinstance(element, str):
+                # Append directly if string
+                result.append(element)
+                continue
+            
+            if not isinstance(element, dict):
+                continue  # skip invalid elements
+
+            # Check required keys
+            if "non_parity_switches" not in element or "superblock_parity_switches" not in element:
+                continue
+
+            # Extract lists
+            non_parity = element.get("non_parity_switches", [])
+            superblock_parity = element.get("superblock_parity_switches", [])
+
+            # Build filename
+            name_parts = []
+            superblock_str = ''.join(superblock_parity)
+            non_parity_str = ''.join(non_parity)
+            
+            if superblock_str and non_parity_str:
+                filename = f"{superblock_str}~{non_parity_str}"
+            elif superblock_str:
+                filename = superblock_str
+            elif non_parity_str:
+                filename = non_parity_str
+            else:
+                continue  # skip if both empty
+
+            # Sanitize filename
+            filename = filename.replace("/", "").replace("\\", "")
+            filename = filename.replace("-", "m").replace("+", "p").replace("_", "")
+            json_filename = filename + ".json"
+
+            # Write JSON file
+            json_path = os.path.join(output_folder, json_filename)
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(element, f, indent=4)
+
+            result.append(filename)
+
+        return result
+
+    def new_pipeline(self, name = "noise", run = 9 , sequence = 1210, sequence_type = None, bincut = None, binpara = None, blockcut = None, blockpara = None, config = None):
+        sequence_type_text = self._sequence_instruction_maker(sequence_type)
+        work_folder = runHandler.create_work_folder(name, run, sequence, sequence_type = sequence_type_text, bincut=bincut, binpara=binpara, blockcut=blockcut, blockpara=blockpara, config=config)
         data_folder, header_folder = runHandler.grab_data(run = run, sequence = sequence)
         self.load_run_folder(work_folder)
         self.load_sequence_assignment()
@@ -81,8 +154,8 @@ class runHandler:
         self.set_binary_data_folder_paths([r"C:\ACMEdata\data"+ str(run).zfill(4) + "."+ str(sequence[0]).zfill(4)])
         self.touch()
 
-    def calculation_pipeline(self, parallel = True):
-        self.calculate_bin_result(parallel=parallel)
+    def calculation_pipeline(self, parallel = True, overwrite = False):
+        self.calculate_bin_result(parallel=parallel, overwrite = overwrite)
         self.cut_bin()
         self.calculate_block_result()
         self.cut_block()
@@ -91,7 +164,7 @@ class runHandler:
     def create_work_folder(name, run, sequence, 
                         parent_folder_path=r"C:\\ACME_analysis", 
                         example_folder_path=r"C:\ACMEcode\ACMEanalysis\templates\example_folder",
-                        sequence_type = None):
+                        sequence_type=None, bincut=None, binpara=None, blockcut=None, blockpara=None, config=None):
         # Ensure sequence is iterable
         if isinstance(sequence, int):
             sequence = [sequence]
@@ -102,64 +175,210 @@ class runHandler:
         new_folder_name = f"{name}{run_str}.{seq_str}"
         new_folder_path = os.path.join(parent_folder_path, new_folder_name)
 
-        # Check if the folder already exists
-        if os.path.exists(new_folder_path):
-            print(f"Folder {new_folder_name} already exists. Skipping creation.")
-            return new_folder_path
+        # --- Modified folder creation logic ---
+        if not os.path.exists(new_folder_path):
+            print(f"Creating folder {new_folder_name} and copying contents from example folder.")
+            shutil.copytree(example_folder_path, new_folder_path)
+        else:
+            print(f"Folder {new_folder_name} already exists. Proceeding without overwriting folder content.")
+            # Ensure subfolders exist (but do not overwrite existing ones)
+            for root, dirs, _ in os.walk(example_folder_path):
+                rel_path = os.path.relpath(root, example_folder_path)
+                dest_path = os.path.join(new_folder_path, rel_path)
+                if not os.path.exists(dest_path):
+                    os.makedirs(dest_path, exist_ok=True)
 
-        # Copy contents from the example folder
-        print(f"Creating folder {new_folder_name} and copying contents from example folder.")
-        shutil.copytree(example_folder_path, new_folder_path)
+        # --------------------------------------------------------------
+        # -------------------- BIN CUT HANDLING -------------------------
+        # --------------------------------------------------------------
+        path_to_bincut = os.path.join(new_folder_path, "Analysis Parameters", "bincut")
+        path_to_bincut_template = r"C:\ACMEcode\ACMEanalysis\templates\bincut"
+        if bincut is not None:
+            for file in os.listdir(path_to_bincut):
+                if file.endswith(".json"):
+                    os.remove(os.path.join(path_to_bincut, file))
+            if not isinstance(bincut, list):
+                bincut = [bincut]
+            for bincut_instance in bincut:
+                if isinstance(bincut_instance, int):
+                    shutil.copy(os.path.join(path_to_bincut_template, f"frac{str(bincut_instance).zfill(2)}.json"),
+                                os.path.join(path_to_bincut, f"frac{str(bincut_instance).zfill(2)}.json"))
+                elif isinstance(bincut_instance, str):
+                    shutil.copy(os.path.join(path_to_bincut_template, f"{bincut_instance}.json"),
+                                os.path.join(path_to_bincut, f"{bincut_instance}.json"))
 
-        # Path to the "sequence assignment.json" file in the new folder
+        # --------------------------------------------------------------
+        # -------------------- BIN PARA HANDLING ------------------------
+        # --------------------------------------------------------------
+        path_to_binpara = os.path.join(new_folder_path, "Analysis Parameters", "binpara")
+        path_to_binpara_template = r"C:\ACMEcode\ACMEanalysis\templates\binpara"
+
+        # Handle defaults for None or []: take offsettrace19.json
+        if binpara is None or (isinstance(binpara, list) and len(binpara) == 0):
+            shutil.copy(os.path.join(path_to_binpara_template, "offsettrace19.json"),
+                        os.path.join(path_to_binpara, "offsettrace19.json"))
+        else:
+            # Delete existing jsons
+            for file in os.listdir(path_to_binpara):
+                if file.endswith(".json"):
+                    os.remove(os.path.join(path_to_binpara, file))
+
+            # Normalize to list
+            if not isinstance(binpara, list):
+                binpara = [binpara]
+
+            # Load baseline once
+            with open(os.path.join(path_to_binpara_template, "offsettrace19.json"), "r") as _f:
+                _baseline_dict = json.load(_f)
+
+            first = binpara[0] if len(binpara) > 0 else None
+
+            # Case 2c: first is list -> expect [string, dict] pairs with custom names
+            if isinstance(first, list):
+                for item in binpara:
+                    if isinstance(item, list) and len(item) == 2 and isinstance(item[0], str) and isinstance(item[1], dict):
+                        fname = item[0] if item[0].lower().endswith(".json") else item[0] + ".json"
+                        merged = dict(_baseline_dict); merged.update(item[1] or {})
+                        with open(os.path.join(path_to_binpara, fname), "w") as f:
+                            json.dump(merged, f, indent=2)
+                    elif isinstance(item, int):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"offsettrace{item}.json"),
+                                    os.path.join(path_to_binpara, f"offsettrace{item}.json"))
+                    elif isinstance(item, str):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"{item}.json"),
+                                    os.path.join(path_to_binpara, f"{item}.json"))
+
+            # Case 2d: first is dict -> auto-name customizedbinpara1,2,3...
+            elif isinstance(first, dict):
+                idx = 1
+                for item in binpara:
+                    if isinstance(item, dict):
+                        merged = dict(_baseline_dict); merged.update(item or {})
+                        with open(os.path.join(path_to_binpara, f"customizedbinpara{idx}.json"), "w") as f:
+                            json.dump(merged, f, indent=2)
+                        idx += 1
+                    elif isinstance(item, int):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"offsettrace{item}.json"),
+                                    os.path.join(path_to_binpara, f"offsettrace{item}.json"))
+                    elif isinstance(item, str):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"{item}.json"),
+                                    os.path.join(path_to_binpara, f"{item}.json"))
+
+            # Case 2a: first is int -> treat list as ints (but tolerate mixed)
+            elif isinstance(first, int):
+                idx = 1
+                for item in binpara:
+                    if isinstance(item, int):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"offsettrace{item}.json"),
+                                    os.path.join(path_to_binpara, f"offsettrace{item}.json"))
+                    elif isinstance(item, str):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"{item}.json"),
+                                    os.path.join(path_to_binpara, f"{item}.json"))
+                    elif isinstance(item, dict):
+                        merged = dict(_baseline_dict); merged.update(item or {})
+                        with open(os.path.join(path_to_binpara, f"customizedbinpara{idx}.json"), "w") as f:
+                            json.dump(merged, f, indent=2)
+                        idx += 1
+
+            # Case 2b: first is string -> treat list as strings (but tolerate mixed)
+            elif isinstance(first, str):
+                idx = 1
+                for item in binpara:
+                    if isinstance(item, str):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"{item}.json"),
+                                    os.path.join(path_to_binpara, f"{item}.json"))
+                    elif isinstance(item, int):
+                        shutil.copy(os.path.join(path_to_binpara_template, f"offsettrace{item}.json"),
+                                    os.path.join(path_to_binpara, f"offsettrace{item}.json"))
+                    elif isinstance(item, dict):
+                        merged = dict(_baseline_dict); merged.update(item or {})
+                        with open(os.path.join(path_to_binpara, f"customizedbinpara{idx}.json"), "w") as f:
+                            json.dump(merged, f, indent=2)
+                        idx += 1
+
+            # Case 1: binpara was a single non-list (already normalized to list of len 1)
+            elif len(binpara) == 1:
+                item = binpara[0]
+                if isinstance(item, int):
+                    shutil.copy(os.path.join(path_to_binpara_template, f"offsettrace{item}.json"),
+                                os.path.join(path_to_binpara, f"offsettrace{item}.json"))
+                elif isinstance(item, str):
+                    shutil.copy(os.path.join(path_to_binpara_template, f"{item}.json"),
+                                os.path.join(path_to_binpara, f"{item}.json"))
+                elif isinstance(item, dict):
+                    merged = dict(_baseline_dict); merged.update(item or {})
+                    with open(os.path.join(path_to_binpara, "customizedbinpara1.json"), "w") as f:
+                        json.dump(merged, f, indent=2)
+                else:
+                    shutil.copy(os.path.join(path_to_binpara_template, "offsettrace19.json"),
+                                os.path.join(path_to_binpara, "offsettrace19.json"))
+            else:
+                shutil.copy(os.path.join(path_to_binpara_template, "offsettrace19.json"),
+                            os.path.join(path_to_binpara, "offsettrace19.json"))
+
+        # --------------------------------------------------------------
+        # ---------------- BLOCKCUT / BLOCKPARA / CONFIG ----------------
+        # --------------------------------------------------------------
+        path_to_blockcut = os.path.join(new_folder_path, "Analysis Parameters", "blockcut")
+        path_to_blockcut_template = r"C:\ACMEcode\ACMEanalysis\templates\blockcut"
+        if blockcut is not None:
+            for file in os.listdir(path_to_blockcut):
+                if file.endswith(".json"):
+                    os.remove(os.path.join(path_to_blockcut, file))
+            if not isinstance(blockcut, list):
+                blockcut = [blockcut]
+            for blockcut_instance in blockcut:
+                if isinstance(blockcut_instance, str):
+                    shutil.copy(os.path.join(path_to_blockcut_template, f"{blockcut_instance}.json"),
+                                os.path.join(path_to_blockcut, f"{blockcut_instance}.json"))
+
+        path_to_blockpara = os.path.join(new_folder_path, "Analysis Parameters", "blockpara")
+        path_to_blockpara_template = r"C:\ACMEcode\ACMEanalysis\templates\blockpara"
+        if blockpara is not None:
+            for file in os.listdir(path_to_blockpara):
+                if file.endswith(".json"):
+                    os.remove(os.path.join(path_to_blockpara, file))
+            if not isinstance(blockpara, list):
+                blockpara = [blockpara]
+            for blockpara_instance in blockpara:
+                if isinstance(blockpara_instance, str):
+                    shutil.copy(os.path.join(path_to_blockpara_template, f"{blockpara_instance}.json"),
+                                os.path.join(path_to_blockpara, f"{blockpara_instance}.json"))
+
+        path_to_config = os.path.join(new_folder_path, "Analysis Parameters", "config")
+        path_to_config_template = r"C:\ACMEcode\ACMEanalysis\templates\config"
+        if config is not None:
+            for file in os.listdir(path_to_config):
+                if file.endswith(".json"):
+                    os.remove(os.path.join(path_to_config, file))
+            if not isinstance(config, list):
+                config = [config]
+            for config_instance in config:
+                if isinstance(config_instance, str):
+                    shutil.copy(os.path.join(path_to_config_template, f"{config_instance}.json"),
+                                os.path.join(path_to_config, f"{config_instance}.json"))
+
+        # --------------------------------------------------------------
+        # ------------------ SEQUENCE ASSIGNMENT ------------------------
+        # --------------------------------------------------------------
         sequence_assignment_file = os.path.join(new_folder_path, "sequence assignment.json")
-
-        # Create the sequence assignment structure
-        """
-        sequence_data = [
-            [
-                "PR",
-                [[run, seq] for seq in sequence]
-            ],
-            [
-                "PR~D",
-                [[run, seq] for seq in sequence]
-            ]
-        ]
-        """
         if sequence_type is None:
             sequence_data = [
-                [
-                    "PR",
-                    [[run, seq] for seq in sequence]
-                ],
-                            [
-                    "PR~D",
-                    [[run, seq] for seq in sequence]
-                ]
+                ["PR", [[run, seq] for seq in sequence]],
+                ["PR~D", [[run, seq] for seq in sequence]]
             ]
-        elif type(sequence_type) == str:
-            sequence_data = [
-                [
-                    sequence_type,
-                    [[run, seq] for seq in sequence]
-                ]
-            ]
+        elif isinstance(sequence_type, str):
+            sequence_data = [[sequence_type, [[run, seq] for seq in sequence]]]
         else:
             sequence_data = [
-                [
-                    sequence_type[i],
-                    [[run, seq] for seq in sequence]
-                ]
+                [sequence_type[i], [[run, seq] for seq in sequence]]
                 for i in range(len(sequence_type))
             ]
-        
-        # Write the updated content to the JSON file
+
         with open(sequence_assignment_file, "w") as json_file:
             json.dump(sequence_data, json_file, indent=4)
 
-        print(f"Folder {new_folder_name} created and 'sequence assignment.json' updated successfully.")
-
+        print(f"Folder {new_folder_name} set up successfully and 'sequence assignment.json' updated.")
         return new_folder_path
 
     def grab_data(data_source_folder_path="X:\\ACME 3 EDM Data",
@@ -167,6 +386,10 @@ class runHandler:
                 data_header_destination_path="C:\\ACMEdata",
                 run=9,
                 sequence=None):
+        if run >= 13:
+            data_source_folder_path = "Z:\\ACME 3 EDM Data"
+            header_source_folder_path = "Z:\\ACME 3 EDM Data"
+
         # Validate sequence
         if sequence is None:
             print("No sequences provided. Exiting.")
@@ -176,6 +399,7 @@ class runHandler:
         if isinstance(sequence, int):
             sequence = [sequence]
         sequence = list(sequence)
+
         # Convert run to zero-padded string
         run_str = str(run).zfill(4)
 
@@ -187,7 +411,7 @@ class runHandler:
         if not os.path.exists(data_source_path) or not os.path.exists(header_source_path):
             print(f"Source folders do not exist for run {run_str}. Exiting.")
             return
-        
+
         seq_str = str(sequence[0]).zfill(4)
         data_dest_folder = os.path.join(data_header_destination_path, f"data{run_str}.{seq_str}")
         header_dest_folder = os.path.join(data_header_destination_path, f"header{run_str}.{seq_str}")
@@ -197,11 +421,28 @@ class runHandler:
         total_skipped_data = 0
         total_skipped_header = 0
 
-        # Helper function to check for existing files with the same base
-        def file_with_similar_base_exists(folder, base_name):
-            for existing_file in os.listdir(folder):
-                if existing_file.startswith(base_name):
-                    return True
+        # Helper function: check if file or its .0000-variant exists and has same size
+        def file_exists_and_same_size(src_file, dest_folder):
+            base_name = os.path.basename(src_file)
+            name, ext = os.path.splitext(base_name)
+            alt_name = f"{name}.0000{ext}"  # variant with ".0000" appended before extension
+
+            dest_file_normal = os.path.join(dest_folder, base_name)
+            dest_file_alt = os.path.join(dest_folder, alt_name)
+
+            for dest_file in [dest_file_normal, dest_file_alt]:
+                if os.path.exists(dest_file):
+                    try:
+                        src_size = os.path.getsize(src_file)
+                        dest_size = os.path.getsize(dest_file)
+                        if src_size == dest_size:
+                            return True  # Same size — skip copying
+                        else:
+                            # Different size — replace old incomplete file
+                            os.remove(dest_file)
+                            return False
+                    except OSError:
+                        return False
             return False
 
         # Iterate over sequences
@@ -212,9 +453,9 @@ class runHandler:
             data_files = [f for f in os.listdir(data_source_path) if f.startswith(f"{run_str}.{seq_str}.")]
             print(f"Copying {len(data_files)} files to {data_dest_folder}...")
             for file in tqdm(data_files, desc=f"Copying data files for sequence {seq_str}"):
-                base_name, _ = os.path.splitext(file)
-                if not file_with_similar_base_exists(data_dest_folder, base_name):
-                    shutil.copy(os.path.join(data_source_path, file), os.path.join(data_dest_folder, file))
+                src_file = os.path.join(data_source_path, file)
+                if not file_exists_and_same_size(src_file, data_dest_folder):
+                    shutil.copy(src_file, os.path.join(data_dest_folder, file))
                 else:
                     total_skipped_data += 1
 
@@ -222,19 +463,20 @@ class runHandler:
             header_files = [f for f in os.listdir(header_source_path) if f.startswith(f"{run_str}.{seq_str}.")]
             print(f"Copying {len(header_files)} files to {header_dest_folder}...")
             for file in tqdm(header_files, desc=f"Copying header files for sequence {seq_str}"):
-                base_name, _ = os.path.splitext(file)
-                if not file_with_similar_base_exists(header_dest_folder, base_name):
-                    shutil.copy(os.path.join(header_source_path, file), os.path.join(header_dest_folder, file))
+                src_file = os.path.join(header_source_path, file)
+                if not file_exists_and_same_size(src_file, header_dest_folder):
+                    shutil.copy(src_file, os.path.join(header_dest_folder, file))
                 else:
                     total_skipped_header += 1
 
         print("Processing complete.")
         if total_skipped_data > 0 or total_skipped_header > 0:
-            print(f"Warning: {total_skipped_data} data files and {total_skipped_header} header files were skipped because similar files already exist.")
+            print(f"Warning: {total_skipped_data} data files and {total_skipped_header} header files were skipped because identical files already exist.")
 
         return data_dest_folder, header_dest_folder
 
-    def _process_header_df(df, folder_path):
+    def _process_header_df(self, df, folder_path):
+        
         def process_group(group):
             # For 'Lock Status' columns: set 0 if all zeros, else 1
             for col in group.columns:
@@ -274,7 +516,7 @@ class runHandler:
         "Conversion Factor Summed", "Acquisition Rate", 
         "Polarization Switching Frequency", "Polarization Switching Deadtime", 
         "Polarization Switching Extra XY Delay", "Polarization Switching XY Swapped", 
-        "Scope Trigger Offset", "Current Sequence Code ID",'Ablation Mirror Position X', 'Ablation Mirror Position Y', 'N', 'E', 'B', 'theta', "dBzdx Main (mA)", "dBzdx Sub (mA)", "Bx-1 up (mA)", "Bx-1 down (mA)", 
+        "Scope Trigger Offset", "Current Sequence Code ID",'Ablation Mirror Position X', 'Ablation Mirror Position Y', "dBzdx Main (mA)", "dBzdx Sub (mA)", "Bx-1 up (mA)", "Bx-1 down (mA)", 
         "Bx-2 up (mA)", "Bx-2 down (mA)", "Bx-3 up (mA)", "Bx-3 down (mA)", 
         "Bx-4 up (mA)", "Bx-4 down (mA)", "By center top current (mA)", 
         "By center bottom current (mA)", "dBydx up top current (mA)", 
@@ -291,13 +533,127 @@ class runHandler:
         # Save the filled DataFrame to 'purged_aggregated_header.csv'
         purged_aggregated_header_path = os.path.join(folder_path, 'purged_aggregated_header.csv')
         df.to_csv(purged_aggregated_header_path, index=False)
-
+        parity_transformed_df = self._logging_channels_parity_transform(df, exemption_list=[], nr_only_list=[])
+        parity_transformed_df.to_csv(os.path.join(folder_path, 'parity_transformed_block_df.csv'), index=False)
         # Step 3: Reduce by removing 'trace' axis
         grouped_df = df.groupby(['run', 'sequence', 'block']).apply(lambda group: process_group(group)).reset_index(drop=True)
 
         # Save the grouped DataFrame to 'block_header.csv'
         block_header_path = os.path.join(folder_path, 'block_header.csv')
         grouped_df.to_csv(block_header_path, index=False)
+
+    def _logging_channels_parity_transform(self, df, exemption_list = [], nr_only_list = [], nochange_list = []):
+        """
+        Generate a new DataFrame with parity-transformed columns based on N, E, theta, B.
+
+        Parameters:
+        df : pd.DataFrame
+            The original dataframe with columns: run, sequence, block, trace, N, E, theta, B, and others.
+        exemption_list : list
+            List of column names to be excluded from parity transformation.
+        nr_only_list : list, optional
+            List of column names for which only non-reversing (nr) averaging is performed.
+        nochange_list : list, optional
+            List of column names to be included with simple averaging and keeping original names.
+
+        Returns:
+        pd.DataFrame
+            New dataframe grouped by (run, sequence, block) with parity-transformed columns.
+        """
+        if nr_only_list is None:
+            nr_only_list = []
+        if nochange_list is None:
+            nochange_list = []
+
+        nochange_list_minimal = self._generate_nochange_list()
+        nochange_list = list(set(nochange_list) | set(nochange_list_minimal))
+
+        df = df.copy()
+        if 'theta' in df.columns:
+            df['Q'] = df['theta']
+
+        available_labels = [label for label in ['N', 'E', 'Q', 'B'] if label in df.columns]
+
+        transform_columns = [col for col in df.columns 
+                            if col not in exemption_list and col not in nochange_list and col not in ['run', 'sequence', 'block', 'trace', 'N', 'E', 'theta', 'B']]
+
+        group_keys = ['run', 'sequence', 'block']
+        grouped = df.groupby(group_keys, sort=False)
+
+        subsets = []
+        subset_names = []
+        for r in range(0, len(available_labels) + 1):
+            for comb in combinations(available_labels, r):
+                subsets.append(list(comb))
+                if len(comb) == 0:
+                    subset_names.append('nr')
+                else:
+                    subset_names.append(''.join(comb))
+
+        def process_group(name_group):
+            name, group = name_group
+            base_row = {k: v for k, v in zip(group_keys, name)}
+            for label in available_labels:
+                base_row[label] = group[label].mean()
+
+            group_label_products = {}
+            for subset, subset_name in zip(subsets, subset_names):
+                if subset_name == 'nr':
+                    group_label_products[subset_name] = np.ones(len(group))
+                else:
+                    group_label_products[subset_name] = group[subset].prod(axis=1)
+
+            for col in transform_columns:
+                if col in nr_only_list or not available_labels:
+                    weighted_avg = group[col].mean()
+                    base_row[f"{col}_nr"] = weighted_avg
+                else:
+                    for subset_name in subset_names:
+                        weighted_avg = (group[col] * group_label_products[subset_name]).mean()
+                        base_row[f"{col}_{subset_name}"] = weighted_avg
+
+            for col in nochange_list:
+                if col in group.columns:
+                    base_row[col] = group[col].mean()
+
+            return base_row
+
+        records = Parallel(n_jobs=-1)(delayed(process_group)(item) for item in grouped)
+
+        result_df = pd.DataFrame.from_records(records)
+        return result_df
+
+    def _generate_nochange_list(self):
+        """
+        Generate nochange list from a master json file and corresponding sub-json files.
+
+        Parameters:
+        master_json_path : str
+            Path to the master JSON file.
+        folder_path : str
+            Path to the folder containing sub JSON files.
+
+        Returns:
+        list
+            Combined list of non_parity_switches and superblock_parity_switches.
+        """
+        master_json_path = os.path.join(self.run_folder, "sequence assignment.json")
+        folder_path = os.path.join(self.run_folder, "Analysis Parameters", "sequence")
+        with open(master_json_path, 'r') as f:
+            master_data = json.load(f)
+
+        collected_switches = set()
+
+        for entry in master_data:
+            subfile_name = entry[0]
+            subfile_path = os.path.join(folder_path, f"{subfile_name}.json")
+            if os.path.exists(subfile_path):
+                with open(subfile_path, 'r') as subf:
+                    sub_data = json.load(subf)
+                    collected_switches.update(sub_data.get('non_parity_switches', []))
+                    collected_switches.update(sub_data.get('superblock_parity_switches', []))
+
+        return list(collected_switches)
 
     def create_run_folder(self, parent_folder = r"C:\ACME_analysis", run_name = r"default_name"):
         # Create the main run folder
@@ -462,14 +818,45 @@ class runHandler:
         except:
             df['phi_B_over_tau'] = 51.75
 
-        df['XY_power_imbalance'] = df['Readout X Power'] / df['Readout Y Channel']
-        df['XY_power_sum'] = (df['Readout X Power'] + df['Readout Y Channel'])/200
+        try:
+            df['XY_power_imbalance'] = df['Readout X Power'] / df['Readout Y Channel']
+            df['XY_power_sum'] = (df['Readout X Power'] + df['Readout Y Channel'])/200
+        except:
+            pass
+        
+        if 'D' in df.columns:
+            df['Dflat'] = (
+                df[['run', 'sequence', 'D']]
+                .drop_duplicates()
+                .sort_values(['run', 'sequence', 'D'])
+                .reset_index(drop=True)
+                .reset_index()
+                .merge(df, on=['run', 'sequence', 'D'], how='right')
+                .sort_index()  # restore original order
+                ['index']
+            )
+        else:
+            df['Dflat'] = (
+                df[['run', 'sequence']]
+                .drop_duplicates()
+                .sort_values(['run', 'sequence'])
+                .reset_index(drop=True)
+                .reset_index()
+                .merge(df, on=['run', 'sequence'], how='right')
+                .sort_index()  # restore original order
+                ['index']
+            )
+
+
         df.to_csv(aggregated_header_path, index=False)
         print(f"Aggregated header saved at: {aggregated_header_path}")
         
+
+
         # Store the DataFrame in the runHandler instance as a property
         self.df = df
-        runHandler._process_header_df(df, self.run_folder)
+        
+        self._process_header_df(df, self.run_folder)
         self.purged_df = pd.read_csv(os.path.join(self.run_folder, 'purged_aggregated_header.csv'))
         self.block_df = pd.read_csv(os.path.join(self.run_folder, 'block_header.csv'))
 
@@ -591,71 +978,95 @@ class runHandler:
                     else:
                         print(f"Collision detected: {target_path} already exists, skipping.")
 
-    def calculate_bin_result(self, parallel=False):
+    def calculate_bin_result(self, parallel=False, overwrite=False):
         print("Calculating bin result...")
         """
         This method calculates the bin result based on binpara, bincut, blockpara, blockcut, and config.
         It scans through the binary files in self.binary_data_folder_paths and filters files based on run_sequence_range.
         Results are calculated for different binpara and saved to different binresult_data_folder_path.
-        
+
         If parallel=True, the processing of binary files is done in parallel using ThreadPoolExecutor.
+        If overwrite=False, skips processing of bin files whose all output results already exist.
+        Any errors in processing individual bin files will be caught and logged without interrupting the flow.
         """
+
         def process_bin_file(bin_file, binpara_json_path, binpara_group):
             """
             Function to process a single binary file, perform the calculation, and save the results.
+            Skips processing if all expected output files already exist and overwrite=False.
             """
-            # Extract run, sequence, block, and trace_offset from the binary file name
             file_name = os.path.basename(bin_file)
             run_num, seq_num, block_num, trace_offset = [int(x) for x in file_name.split('.')[:4]]
 
             # Check if the [run_num, seq_num] pair is in the run_sequence_range
-            if [run_num, seq_num] in self.run_sequence_range:
-                # print(f"Processing file: {bin_file} with run_num: {run_num}, seq_num: {seq_num}, with bin para {binpara}")
+            if [run_num, seq_num] not in self.run_sequence_range:
+                return  # Skip if not in range
 
-                # Slice self.df to get the DataFrame for the current run, sequence, and block
-                df_slice = self.df[(self.df['run'] == run_num) & (self.df['sequence'] == seq_num) & (self.df['block'] == block_num)]
+            # Determine expected output file name
+            expected_output_name = f"binresult_{os.path.splitext(file_name)[0]}.pkl"
 
-                # Perform calculation using binCalculator for each binpara
-                calculator = binCalculator(bin_file, binpara_json_path, df_slice)
-                calculator.default_pipeline()
+            # Check if all target output files already exist
+            all_exist = True
+            for _, row in binpara_group.iterrows():
+                output_folder = row['binresult_data_folder_path']
+                output_file = os.path.join(output_folder, expected_output_name)
+                if not os.path.exists(output_file):
+                    all_exist = False
+                    break
 
-                # Now we need to loop through the specific combinations for this binpara
-                for idx, row in binpara_group.iterrows():
-                    # Fetch the paths for the current combination of bincut, blockpara, blockcut, and config
-                    binresult_data_folder_path = row['binresult_data_folder_path']
+            if all_exist and not overwrite:
+                print(f"Skipping {file_name}: all outputs exist.")
+                return  # Skip this bin file entirely
 
-                    # Create the folder if it doesn't exist
-                    os.makedirs(binresult_data_folder_path, exist_ok=True)
+            # Slice self.df to get the DataFrame for the current run, sequence, and block
+            df_slice = self.df[
+                (self.df['run'] == run_num)
+                & (self.df['sequence'] == seq_num)
+                & (self.df['block'] == block_num)
+            ]
 
-                    # Save the results to the current path
-                    # print(f"Saving results to {binresult_data_folder_path}")
-                    calculator.saveBinResults(binresult_data_folder_path)
+            # Perform calculation using binCalculator
+            calculator = binCalculator(bin_file, binpara_json_path, df_slice)
+            calculator.default_pipeline()
 
-                # Cleanup after each file
-                del calculator
-                gc.collect()
-                # print(f"Finished processing file: {bin_file}")
+            # Save to all target folders for this binpara
+            for _, row in binpara_group.iterrows():
+                binresult_data_folder_path = row['binresult_data_folder_path']
+                os.makedirs(binresult_data_folder_path, exist_ok=True)
+                calculator.saveBinResults(binresult_data_folder_path)
 
-        # Loop through each binpara and group by bincut, blockpara, blockcut, and config
+            # Cleanup
+            del calculator
+            gc.collect()
+
+        # Loop through each binpara group
         for binpara in self.path_df['binpara'].unique():
             binpara_group = self.path_df[self.path_df['binpara'] == binpara]
-            binpara_json_path = binpara_group['binpara_json_path'].iloc[0]  # Get the path for binpara
-            
+            binpara_json_path = binpara_group['binpara_json_path'].iloc[0]
+
             for binary_folder in self.binary_data_folder_paths:
-                # Scan for .bin files in the folder
                 bin_files = glob.glob(os.path.join(binary_folder, '*.bin'))
-                
+
                 if parallel:
-                    # Parallel processing using ThreadPoolExecutor
+                    # Parallel processing
                     with ThreadPoolExecutor() as executor:
-                        futures = [executor.submit(process_bin_file, bin_file, binpara_json_path, binpara_group) for bin_file in bin_files]
-                        # Wait for all threads to complete
+                        futures = []
+                        for bin_file in bin_files:
+                            futures.append(executor.submit(process_bin_file, bin_file, binpara_json_path, binpara_group))
+
+                        # Handle results and errors gracefully
                         for future in futures:
-                            future.result()  # This will raise any exceptions encountered
+                            try:
+                                future.result()  # Raises any exceptions inside threads
+                            except Exception as e:
+                                print(f"[Warning] Failed processing file in parallel: {e}")
                 else:
                     # Sequential processing
-                    for bin_file in tqdm(bin_files):
-                        process_bin_file(bin_file, binpara_json_path, binpara_group)
+                    for bin_file in tqdm(bin_files, desc=f"Processing binpara {binpara}"):
+                        try:
+                            process_bin_file(bin_file, binpara_json_path, binpara_group)
+                        except Exception as e:
+                            print(f"[Warning] Failed processing {os.path.basename(bin_file)}: {e}")
 
     def cut_bin(self):
         """
@@ -744,12 +1155,13 @@ class runHandler:
                 # The binVisualizer automatically creates and saves figures to the figure folder
 
             print(f"Finished visualizing all files for binpara: {binpara}, bincut: {row['bincut']}, blockpara: {row['blockpara']}, blockcut: {row['blockcut']}, config: {row['config']}")
-
+    
     def calculate_block_result(self):
         """
         This method calculates block-level results using blockCalculator.
         It scans through binresult_xxxx.xxxx.xxxx.xxxx.pkl and bincutresult_xxxx.xxxx.xxxx.xxxx.pkl files,
         groups them by run, sequence, and block, and passes the appropriate lists to blockCalculator.
+        Errors encountered during block calculations are caught and reported without stopping the pipeline.
         """
         blind_path = os.path.join(self.run_folder, 'Blinding Files')  # The blinding folder path
 
@@ -758,7 +1170,7 @@ class runHandler:
         for idx, row in self.path_df.iterrows():
             blockpara_json_path = row['blockpara_json_path']
             binresult_data_folder_path = row['binresult_data_folder_path']
-            blockresult_data_folder_path = row['blockresult_data_folder_path']  # Corrected target folder for output
+            blockresult_data_folder_path = row['blockresult_data_folder_path']  # Correct target folder for output
 
             # Locate all binresult and bincutresult files in the binresult_data_folder_path
             binresult_files = glob.glob(os.path.join(binresult_data_folder_path, 'binresult_*.pkl'))
@@ -767,15 +1179,13 @@ class runHandler:
             # Group files by run, sequence, and block
             grouped_files = {}
             for bin_file in binresult_files:
-                # Extract the run, sequence, block, and trace_offset
+                # Extract run, sequence, block, and trace_offset
                 file_name = os.path.basename(bin_file)
                 run_num, seq_num, block_num, trace_offset = [int(x) for x in file_name.split('_')[1].split('.')[:4]]
 
-                # Group by (run, sequence, block), using trace_offset as a key for sorting later
                 key = (run_num, seq_num, block_num)
                 if key not in grouped_files:
                     grouped_files[key] = {'binresults': [], 'bincutresults': []}
-                
                 grouped_files[key]['binresults'].append(bin_file)
 
             # Do the same for bincutresult files
@@ -793,7 +1203,11 @@ class runHandler:
                 files['bincutresults'].sort(key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[3]))
 
                 # Filter self.df for the current run, sequence, and block
-                df_block = self.df[(self.df['run'] == run) & (self.df['sequence'] == sequence) & (self.df['block'] == block)]
+                df_block = self.df[
+                    (self.df['run'] == run)
+                    & (self.df['sequence'] == sequence)
+                    & (self.df['block'] == block)
+                ]
                 
                 if df_block.empty:
                     print(f"Warning: No corresponding data found in self.df for run {run}, sequence {sequence}, block {block}. Skipping.")
@@ -802,21 +1216,21 @@ class runHandler:
                 # Calculate phi_B_over_tau as the mean of df['phi_B_over_tau'] for the current group
                 phi_B_over_tau = df_block['phi_B_over_tau'].mean()
 
-                # Invoke blockCalculator with the appropriate parameters
-                # print("Block: " + str(run).zfill(4) + "." + str(sequence).zfill(4) + "." + str(block).zfill(4) + f"with omega_B={phi_B_over_tau}")
-                
-                calculator = blockCalculator(
-                    blockpara_json_path=blockpara_json_path,
-                    binresults_path_list=files['binresults'],
-                    bincutresult_path_list=files['bincutresults'],
-                    blockresult_path=blockresult_data_folder_path,  # Correct folder path for block results
-                    df=df_block,
-                    phi_B_over_tau=phi_B_over_tau,
-                    blind_path=blind_path
-                )
-
-                # The blockCalculator automatically writes the result .pkl files
-                # print(f"Block result calculated for run {run}, sequence {sequence}, block {block}." + " at "+ blockresult_data_folder_path)
+                # Try executing block calculation safely
+                try:
+                    calculator = blockCalculator(
+                        blockpara_json_path=blockpara_json_path,
+                        binresults_path_list=files['binresults'],
+                        bincutresult_path_list=files['bincutresults'],
+                        blockresult_path=blockresult_data_folder_path,
+                        df=df_block,
+                        phi_B_over_tau=phi_B_over_tau,
+                        blind_path=blind_path
+                    )
+                    # blockCalculator automatically writes its results to disk
+                except Exception as e:
+                    print(f"[Warning] Block calculation failed for run {run}, sequence {sequence}, block {block}: {e}")
+                    continue  # Proceed with the next group
 
     def cut_block(self):
         """
@@ -992,7 +1406,7 @@ class runHandler:
                 del calculator
                 gc.collect()
 
-    def visualize_sequence_result(self, degenerate_blocks=False, additional_columns = [], groups = False, parity = False):
+    def visualize_sequence_result(self, degenerate_blocks=False, additional_columns = [], groups = False, parity = False, quantity_of_interest = ['phi','C','omega'], new1d = True, fitting = True, non_parity_sw = None, plot_2d = False, axes2d = None, baseline = None):
         """
         This method visualizes sequence-level results using sequenceVisualizer.
         It scans through subfolders in sequenceresult_data_folder_path, finds corresponding sequence results, and creates
@@ -1038,6 +1452,10 @@ class runHandler:
                     visualizer.visualize_degenerate_blocks(self.block_df, additional_columns)
                 if groups:
                     visualizer.visualize_groups()
+                if new1d:
+                    visualizer.visualize_and_fit_final_results_1d(quantity_of_interest, non_parity_sw = non_parity_sw, linear_fit = fitting)
+                if plot_2d:
+                    visualizer.visualize_2d(quantity_of_interest, axes2d = axes2d, baseline = None)
                 # The sequenceVisualizer automatically generates and saves the figures
                 del visualizer
                 gc.collect()

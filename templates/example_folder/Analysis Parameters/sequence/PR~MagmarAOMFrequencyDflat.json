@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["Magmar_AOM_Frequency", "Dflat"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

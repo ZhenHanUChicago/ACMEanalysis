@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["HV_lens_Voltage","Dflat"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

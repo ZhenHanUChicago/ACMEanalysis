@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["Y_AOM_Phase"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

@@ -1227,15 +1227,43 @@ class sequenceCalculator:
         self.sequenceresult.sequencedf = sequenceCalculator._sequence_result_convert_to_dataframe(self.sequenceresult)
         self.sequenceresult.sequencesipmdf = sequenceCalculator._sequence_result_convert_to_sipm_dataframe(self)
         sequenceCalculator._block_df_combine_sipm(self.superblock_parity_switches, self.non_parity_switches, self.sequenceresult.blockdf)
+
+        # Save pickle
         with open(os.path.join(self.sequence_result_folder_path, f'sequenceresult_{self.sequenceresult.sequence_name}.pkl'), 'wb') as f:
             pickle.dump(self.sequenceresult, f)
-        self.sequenceresult.sequencesipmdf.to_csv(os.path.join(self.sequence_result_folder_path, f'sequencesipmdf_{self.sequenceresult.sequence_name}.csv'), index=False)
-        self.sequenceresult.blockdf.to_csv(os.path.join(self.sequence_result_folder_path, f'sequenceblocks_{self.sequenceresult.sequence_name}.csv'), index=False)
-        self.sequenceresult.sequencedf.to_csv(os.path.join(self.sequence_result_folder_path, f'sequencedf_{self.sequenceresult.sequence_name}.csv'), index=False)
 
-        self.sequenceresult.blockdf.to_csv(os.path.join(r"C:\ACME_analysis\multiple_results\sequenceblock_results", self.sequenceresult.sequence_string[1:] + ".csv"), index=False)
-        self.sequenceresult.sequencedf.to_csv(os.path.join(r"C:\ACME_analysis\multiple_results\sequencedf_result", self.sequenceresult.sequence_string[1:] + ".csv"), index=False)
-        self.sequenceresult.sequencesipmdf.to_csv(os.path.join(r"C:\ACME_analysis\multiple_results\sequencesipm_results", self.sequenceresult.sequence_string[1:] + ".csv"), index=False)
+        # Save CSVs in result folder
+        self.sequenceresult.sequencesipmdf.to_csv(
+            os.path.join(self.sequence_result_folder_path, f'sequencesipmdf_{self.sequenceresult.sequence_name}.csv'),
+            index=False
+        )
+        self.sequenceresult.blockdf.to_csv(
+            os.path.join(self.sequence_result_folder_path, f'sequenceblocks_{self.sequenceresult.sequence_name}.csv'),
+            index=False
+        )
+        self.sequenceresult.sequencedf.to_csv(
+            os.path.join(self.sequence_result_folder_path, f'sequencedf_{self.sequenceresult.sequence_name}.csv'),
+            index=False
+        )
+
+        # Limit filename to 50 characters (excluding the path)
+        filename_part = self.sequenceresult.sequence_string[1:]
+        if len(filename_part) > 50:
+            filename_part = filename_part[:50]
+
+        # Save to multiple_results folder with truncated filename
+        self.sequenceresult.blockdf.to_csv(
+            os.path.join(r"C:\ACME_analysis\multiple_results\sequenceblock_results", f"{filename_part}.csv"),
+            index=False
+        )
+        self.sequenceresult.sequencedf.to_csv(
+            os.path.join(r"C:\ACME_analysis\multiple_results\sequencedf_result", f"{filename_part}.csv"),
+            index=False
+        )
+        self.sequenceresult.sequencesipmdf.to_csv(
+            os.path.join(r"C:\ACME_analysis\multiple_results\sequencesipm_results", f"{filename_part}.csv"),
+            index=False
+        )
 
     def output_standard_format(self):
         stand_dict = {'blind 5':{}}

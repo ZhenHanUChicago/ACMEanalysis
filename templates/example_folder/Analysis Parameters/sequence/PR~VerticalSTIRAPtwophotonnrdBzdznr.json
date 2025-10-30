@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["Vertical_STIRAP_two_photon_nr", "dBz/dz_nr"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

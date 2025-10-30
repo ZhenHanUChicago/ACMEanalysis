@@ -1,0 +1,10 @@
+{
+    "non_parity_switches": [
+        "V_offset",
+        "Dflat"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

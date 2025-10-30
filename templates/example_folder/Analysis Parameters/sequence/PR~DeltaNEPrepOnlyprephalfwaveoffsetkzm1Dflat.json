@@ -1,0 +1,11 @@
+{
+    "non_parity_switches": [
+        "Delta_NE_PrepOnly",
+        "prep_half_wave_offset_kz-1",
+        "Dflat"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

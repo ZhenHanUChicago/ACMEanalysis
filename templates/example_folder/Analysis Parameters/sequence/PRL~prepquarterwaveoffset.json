@@ -1,0 +1,8 @@
+{
+    "non_parity_switches": ["prep_quarter_wave_offset"],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "L"
+    ]
+}

@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["LA_Movers", "D2"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

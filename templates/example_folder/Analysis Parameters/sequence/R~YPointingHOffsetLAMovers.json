@@ -1,0 +1,6 @@
+{
+    "non_parity_switches": ["Y_Pointing_H_Offset","LA_Movers"],
+    "superblock_parity_switches": [
+        "R"
+    ]
+}

@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["dBz/dz_nr","Enr"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}

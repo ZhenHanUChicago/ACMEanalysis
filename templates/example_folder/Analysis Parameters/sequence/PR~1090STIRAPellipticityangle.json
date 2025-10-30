@@ -1,0 +1,7 @@
+{
+    "non_parity_switches": ["1090_STIRAP_ellipticity_angle"],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}
