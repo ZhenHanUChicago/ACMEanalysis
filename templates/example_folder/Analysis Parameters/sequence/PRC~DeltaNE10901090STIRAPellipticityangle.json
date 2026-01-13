@@ -1,0 +1,11 @@
+{
+    "non_parity_switches": [
+        "Delta_NE_1090",
+        "1090_STIRAP_ellipticity_angle"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "C"
+    ]
+}

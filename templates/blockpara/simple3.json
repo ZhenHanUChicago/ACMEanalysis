@@ -1,0 +1,4 @@
+{
+    "full_waveplate_dither_range_in_deg": 3,
+    "error_propagation_method": "simple"
+}

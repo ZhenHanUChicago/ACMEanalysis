@@ -890,7 +890,7 @@ class sequenceVisualizer:
                     continue
 
                 # Filename format identical to your original
-                if str(channel).lower() == "nr":
+                if str(channel) == "nr":
                     fig_filename = os.path.join(subfolder, f"nonreversing_{q}.png")
                 else:
                     fig_filename = os.path.join(subfolder, f"{channel}_{q}.png")

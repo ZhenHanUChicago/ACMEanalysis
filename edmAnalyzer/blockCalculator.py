@@ -222,19 +222,19 @@ class blockCalculator:
         return center_of_mass
 
     def _sipm_vector(arr):
-        sipm_matrix = np.array([[ 1,  1,  1],
-                  [-1,  1,  1],
-                  [ 1, -1,  1],
-                  [-1, -1,  1],
-                  [ 1,  1, -1],
-                  [-1,  1, -1],
-                  [ 1, -1, -1],
-                  [-1, -1, -1]])
+        sipm_matrix = np.array([[ 1,  1,  1,  1],
+                  [-1,  1,  1, 1],
+                  [ 1, -1,  1, 1],
+                  [-1, -1,  1, -1],
+                  [ 1,  1, -1, 0],
+                  [-1,  1, -1, -1],
+                  [ 1, -1, -1, 0],
+                  [-1, -1, -1, -1]])
         sipm_matrix = sipm_matrix[0:arr.shape[-2]]
         summed_vector  = np.swapaxes(np.tensordot(arr, sipm_matrix, axes = (-2,0)),-2,-1)
         summed_signal = arr.sum(axis = -2, keepdims=True)
         result = np.nan_to_num(np.divide(summed_vector,summed_signal))
-        return result[...,[0],:], result[...,[1],:], result[...,[2],:]
+        return result[...,[0],:], result[...,[1],:], result[...,[2],:], result[...,[3],:]
 
     def _propagate_error_bar(A, dA2, axis_to_take_average, nan = False):
         if nan:
@@ -423,13 +423,13 @@ class blockCalculator:
         N_state = N_raw[:,0,...] + N_raw[:,1,...]
 
         N_state_summary = N_state[..., self.blockcut_left:self.blockcut_right].sum(axis = -1, keepdims=True)
-        xsipm_state_summary,ysipm_state_summary,zsipm_state_summary = blockCalculator._sipm_vector(N_state_summary)
+        xsipm_state_summary,ysipm_state_summary,zsipm_state_summary, yzsipm_state_summary = blockCalculator._sipm_vector(N_state_summary)
 
 
         envelop_phi_state_all_sipm = (np.diff(N_state.sum(axis = -2, keepdims = True), axis = -1)/N_state.sum(axis = -2, keepdims = True)[...,1:])/20/2/2/2
         envelop_phi_state = (np.diff(N_state, axis = -1)/N_state[...,1:])/20/2/2/2
         center_of_mass_state = blockCalculator._calculate_center_of_mass(N_state)
-        xsipm_state,ysipm_state,zsipm_state = blockCalculator._sipm_vector(N_state)
+        xsipm_state,ysipm_state,zsipm_state, yzsipm_state = blockCalculator._sipm_vector(N_state)
         sipmratio_state = N_state/N_state.sum(axis = -2, keepdims=True)
 
         N = np.tensordot(self.P, N_state, axes = (1,0))
@@ -439,6 +439,7 @@ class blockCalculator:
         xsipm = np.tensordot(self.P, xsipm_state, axes = (1,0))
         ysipm = np.tensordot(self.P, ysipm_state, axes = (1,0))
         zsipm = np.tensordot(self.P, zsipm_state, axes = (1,0))
+        yzsipm = np.tensordot(self.P, yzsipm_state, axes = (1,0))
         sipmratio = np.tensordot(self.P, sipmratio_state, axes = (1,0))    
 
 
@@ -503,6 +504,7 @@ class blockCalculator:
                                                             'xsipm': xsipm,
                                                             'ysipm': ysipm,
                                                             'zsipm': zsipm,
+                                                            'yzsipm': yzsipm,
                                                             'sipmratio': sipmratio,
                                                             'envelop_phi_all_sipm': envelop_phi_all_sipm,
                                                             'envelop_phi': envelop_phi,
@@ -567,6 +569,7 @@ class blockCalculator:
         xsipm_summary = np.tensordot(self.P, xsipm_state_summary, axes = (1,0))
         ysipm_summary = np.tensordot(self.P, ysipm_state_summary, axes = (1,0))
         zsipm_summary = np.tensordot(self.P, zsipm_state_summary, axes = (1,0))
+        yzsipm_summary = np.tensordot(self.P, yzsipm_state_summary, axes = (1,0))
 
         self.blockresult._BlockResults__unblinded.result_summary = {'N_summary': N_summary, 
                                                'C_summary': C_summary, 
@@ -581,6 +584,7 @@ class blockCalculator:
                                                'xsipm_summary': xsipm_summary,
                                                'ysipm_summary': ysipm_summary,
                                                'zsipm_summary': zsipm_summary,
+                                               'yzsipm_summary': yzsipm_summary,
                                                'redchigroupC_summary': redchigroupC_summary,
                                                 'redchigroupphi_summary': redchigroupphi_summary,
                                                 'redchigrouptau_summary': redchigrouptau_summary,
@@ -631,6 +635,7 @@ class blockCalculator:
         self.blockresult.blinded.result['xsipm'] = self.blockresult._BlockResults__unblinded.result['xsipm'].copy()
         self.blockresult.blinded.result['ysipm'] = self.blockresult._BlockResults__unblinded.result['ysipm'].copy()
         self.blockresult.blinded.result['zsipm'] = self.blockresult._BlockResults__unblinded.result['zsipm'].copy()
+        self.blockresult.blinded.result['yzsipm'] = self.blockresult._BlockResults__unblinded.result['yzsipm'].copy()
         self.blockresult.blinded.result['sipmratio'] = self.blockresult._BlockResults__unblinded.result['sipmratio'].copy()
 
         self.blockresult.blinded.result['envelop_phi_all_sipm'] = self.blockresult._BlockResults__unblinded.result['envelop_phi_all_sipm'].copy()
@@ -671,7 +676,8 @@ class blockCalculator:
         self.blockresult.blinded.result_summary['xsipm_summary'] = self.blockresult._BlockResults__unblinded.result_summary['xsipm_summary'].copy()
         self.blockresult.blinded.result_summary['ysipm_summary'] = self.blockresult._BlockResults__unblinded.result_summary['ysipm_summary'].copy()
         self.blockresult.blinded.result_summary['zsipm_summary'] = self.blockresult._BlockResults__unblinded.result_summary['zsipm_summary'].copy()
-
+        self.blockresult.blinded.result_summary['yzsipm_summary'] = self.blockresult._BlockResults__unblinded.result_summary['yzsipm_summary'].copy()
+        
         self.blockresult.blinded.result_summary['redchigroupC_summary'] = self.blockresult._BlockResults__unblinded.result_summary['redchigroupC_summary'].copy()
         self.blockresult.blinded.result_summary['redchigroupphi_summary'] = self.blockresult._BlockResults__unblinded.result_summary['redchigroupphi_summary'].copy()
         self.blockresult.blinded.result_summary['redchigrouptau_summary'] = self.blockresult._BlockResults__unblinded.result_summary['redchigrouptau_summary'].copy()
@@ -699,7 +705,6 @@ class blockCalculator:
         self.blockresult.blinded.result_sipmsum['domega2_sipmsum'] = self.blockresult._BlockResults__unblinded.result_sipmsum['domega2_sipmsum'].copy()
         self.blockresult.blinded.result_sipmsum['FA_sipmsum'] = self.blockresult._BlockResults__unblinded.result_sipmsum['FA_sipmsum'].copy()
         self.blockresult.blinded.result_sipmsum['FC_sipmsum'] = self.blockresult._BlockResults__unblinded.result_sipmsum['FC_sipmsum'].copy()
-
 
     def save_result(self):
         with open(os.path.join(self.blockresult_path, "blockresult_" + self.blockresult.block_string)+ '.pkl', 'wb') as f:

@@ -1,0 +1,12 @@
+{
+    "non_parity_switches": [
+        "Dflat",
+        "prep_quarter_wave_offset",
+        "probe_half_wave_offset_kz-1"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "C"
+    ]
+}

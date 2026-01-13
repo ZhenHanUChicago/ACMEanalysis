@@ -304,6 +304,7 @@ class sequenceCalculator:
                 'xsipm': blockresult._BlockResults__unblinded.result['xsipm'],
                 'ysipm': blockresult._BlockResults__unblinded.result['ysipm'],
                 'zsipm': blockresult._BlockResults__unblinded.result['zsipm'],
+                'yzsipm': blockresult._BlockResults__unblinded.result['yzsipm'],
                 'Ap': blockresult._BlockResults__unblinded.result['Ap'],
                 'dAp2': blockresult._BlockResults__unblinded.result['dAp2'],
                 'Am': blockresult._BlockResults__unblinded.result['Am'],
@@ -322,6 +323,7 @@ class sequenceCalculator:
                 'xsipm_summary': blockresult._BlockResults__unblinded.result_summary['xsipm_summary'],
                 'ysipm_summary': blockresult._BlockResults__unblinded.result_summary['ysipm_summary'],
                 'zsipm_summary': blockresult._BlockResults__unblinded.result_summary['zsipm_summary'],
+                'yzsipm_summary': blockresult._BlockResults__unblinded.result_summary['yzsipm_summary'],
                 'Ap_summary': blockresult._BlockResults__unblinded.result_summary['Ap_summary'],
                 'dAp2_summary': blockresult._BlockResults__unblinded.result_summary['dAp2_summary'],
                 'Am_summary': blockresult._BlockResults__unblinded.result_summary['Am_summary'],
@@ -607,6 +609,23 @@ class sequenceCalculator:
                     # Store averaged result in superblock_state_dict
                     self.superblock_state_dict[quantity][non_parity_key][superblock_parity_key] = zsipm_mean
 
+        for quantity in ['yzsipm', 'yzsipm_summary']:
+            if quantity not in self.superblock_state_dict:
+                self.superblock_state_dict[quantity] = {}
+
+            # Iterate over keys for non_parity_switches
+            for non_parity_key in self.blockdict[quantity].keys():
+                if non_parity_key not in self.superblock_state_dict[quantity]:
+                    self.superblock_state_dict[quantity][non_parity_key] = {}
+
+                # Iterate over keys for superblock_parity_switches
+                for superblock_parity_key in self.blockdict[quantity][non_parity_key].keys():
+                    yzsipm_list = self.blockdict[quantity][non_parity_key][superblock_parity_key]
+                    yzsipm_mean = np.mean(yzsipm_list, axis=0, keepdims=True)
+
+                    # Store averaged result in superblock_state_dict
+                    self.superblock_state_dict[quantity][non_parity_key][superblock_parity_key] = yzsipm_mean
+
     def _create_sequence_results(self):
         # Initialize sequence_result and sequence_result_summary dictionaries
         self.sequence_result = {}
@@ -614,8 +633,8 @@ class sequenceCalculator:
         self.final_result = {}
 
         # Explicitly list the quantities for sequence_result and sequence_result_summary
-        quantities_for_value_transformation = ['C', 'phi', 'omega', 'tau', 'N', 'A', 'xsipm', 'ysipm', 'zsipm','Ap', 'Am']
-        quantities_for_value_transformation_summary = ['C_summary', 'phi_summary', 'omega_summary', 'tau_summary', 'N_summary','A_summary', 'xsipm_summary', 'ysipm_summary', 'zsipm_summary','Ap_summary', 'Am_summary']
+        quantities_for_value_transformation = ['C', 'phi', 'omega', 'tau', 'N', 'A', 'xsipm', 'ysipm', 'zsipm', 'yzsipm','Ap', 'Am']
+        quantities_for_value_transformation_summary = ['C_summary', 'phi_summary', 'omega_summary', 'tau_summary', 'N_summary','A_summary', 'xsipm_summary', 'ysipm_summary', 'zsipm_summary' , 'yzsipm_summary','Ap_summary', 'Am_summary']
 
 
         quantities_for_variance_transformation = ['dC2', 'dphi2', 'domega2', 'dtau2', 'dA2', 'dAp2', 'dAm2']
@@ -719,7 +738,7 @@ class sequenceCalculator:
                 self.final_result['N'][non_parity_key] = N_summed
                 
         # store xsipm, ysipm, zsipm _ summary in final result:
-        for quantity in ['xsipm_summary', 'ysipm_summary', 'zsipm_summary']:
+        for quantity in ['xsipm_summary', 'ysipm_summary', 'zsipm_summary', 'yzsipm_summary']:
             if quantity in self.sequence_result_summary:
                 for non_parity_key in self.sequence_result_summary[quantity]:
                     self.final_result[quantity] = self.final_result.get(quantity, {})
@@ -862,6 +881,11 @@ class sequenceCalculator:
             averaged_values = df[sipm_columns].mean(axis=1)
             df[f'block_zsipm_{channel}'] = averaged_values
         
+        def average_yzsipm_values(df, channel):
+            sipm_columns = [f'block_yzsipm_{channel}_sipm{i}' for i in range(8) if f'block_yzsipm_{channel}_sipm{i}' in df.columns]
+            averaged_values = df[sipm_columns].mean(axis=1)
+            df[f'block_yzsipm_{channel}'] = averaged_values
+
         def average_ysipm_values(df, channel):
             sipm_columns = [f'block_ysipm_{channel}_sipm{i}' for i in range(8) if f'block_ysipm_{channel}_sipm{i}' in df.columns]
             averaged_values = df[sipm_columns].mean(axis=1)
@@ -877,7 +901,7 @@ class sequenceCalculator:
             for channel in channels:
                 if quantity == 'tau' and channel != 'nr':  # Exception for 'tau'
                     continue
-                if quantity != 'N' and quantity != 'zsipm' and quantity != 'ysipm' and quantity != 'xsipm':  # Avoid processing 'N' , 'zsipm', 'xsipm', 'ysipm'quantities
+                if quantity != 'N' and quantity != 'zsipm' and quantity != 'ysipm' and quantity != 'xsipm' and quantity != 'yzsipm':  # Avoid processing 'N' , 'zsipm', 'xsipm', 'ysipm'quantities
                     weighted_average_with_uncertainty(df, quantity, channel)
 
         # Process 'N' quantities by summing values without uncertainties
@@ -888,6 +912,7 @@ class sequenceCalculator:
             average_zsipm_values(df, channel)
             average_ysipm_values(df, channel)
             average_xsipm_values(df, channel)
+            average_yzsipm_values(df, channel)
 
     def _sequence_result_convert_to_dataframe(a):
         # Step 1: Extract non-parity switches and prepare the initial column for them
@@ -984,7 +1009,17 @@ class sequenceCalculator:
                         if column_name not in all_columns:
                             all_columns.append(column_name)
                             
-            
+            if 'yzsipm_summary' in final_result:
+                matrix_yzsipm = final_result['yzsipm_summary'][switch_values]
+                for i in range(matrix_yzsipm.shape[0]):
+                    for j in range(matrix_yzsipm.shape[2]):
+                        label = labels[i][j] if i < len(labels) and j < len(labels[i]) else f"unknown_{i}_{j}"
+                        
+                        row.append(matrix_yzsipm[i, 0, j, 0, 0, 0, 0])
+                        column_name = f'yzsipm_{label}'
+                        if column_name not in all_columns:
+                            all_columns.append(column_name)
+
             # Append the row to the list of rows
             rows.append(row)
         

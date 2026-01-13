@@ -1,0 +1,10 @@
+{
+    "non_parity_switches": [
+        "Qleanup_sideband_drive"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "C"
+    ]
+}

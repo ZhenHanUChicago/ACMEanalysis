@@ -6,31 +6,41 @@ from datetime import datetime
 
 class hh:
     def parse_config_file(filepath):
-        # Regex patterns to identify the different line types
-        header_pattern = r"header\s+(\d+\.\d+\.\d+\.\d+\.\d+)"
+        # Precompile regex patterns
+        header_re = re.compile(r"header\s+(\d+\.\d+\.\d+\.\d+\.\d+)")
         # Updated value pattern to robustly handle all numerical formats
-        value_pattern = r"^(?!==)([^\t]+?)\t+.*?([\-\d\.]+(?:[Ee][+-]?\d+)?)(\s*[\w\/]*)$"
-        
+        value_re = re.compile(r"^(?!==)([^\t]+?)\t+.*?([\-\d\.]+(?:[Ee][+-]?\d+)?)(\s*[\w\/]*)$")
+
         # Read the file and split into paragraphs using 'header' as the starting point of a new paragraph
         with open(filepath, 'r') as file:
             content = file.read()
-        
-        # DataFrame to hold all the data
-        df = pd.DataFrame()
+
         paragraphs = re.split(r'\n(?=header)', content)
+
+        rows = []  # collect dicts here instead of concatenating DataFrames in a loop
 
         for paragraph in paragraphs:
             data_dict = {}
             lines = paragraph.split('\n')
+
             for line in lines:
                 line = line.strip()
-                header_match = re.match(header_pattern, line)
-                value_match = re.match(value_pattern, line)
-                
+                if not line:
+                    continue
+
+                header_match = header_re.match(line)
+
                 if header_match:
                     run, sequence, block, trace, _ = header_match.group(1).split('.')
-                    data_dict.update({'run': run, 'sequence': sequence, 'block': block, 'trace': trace})
-                elif line.startswith("Start Time") or line.startswith("End Time"):
+                    data_dict.update({
+                        'run': run,
+                        'sequence': sequence,
+                        'block': block,
+                        'trace': trace
+                    })
+                    continue
+
+                if line.startswith("Start Time") or line.startswith("End Time"):
                     parts = line.split('\t')
                     if len(parts) > 1:
                         timestamp = parts[1].strip()
@@ -45,7 +55,10 @@ class hh:
                             data_dict[f"{prefix} second"] = dt.second + dt.microsecond / 1e6
                         except ValueError:
                             pass  # Ignore invalid datetime values
-                elif value_match:
+                    continue
+
+                value_match = value_re.match(line)
+                if value_match:
                     key = value_match.group(1).strip()
                     value = value_match.group(2).strip()
                     try:
@@ -56,21 +69,27 @@ class hh:
                             value = float_val
                     except ValueError:
                         continue  # If conversion fails, skip adding this entry
+
                     if key not in data_dict:
                         data_dict[key] = value
-                    else:
-                        pass
-            
-            # Convert the dictionary to a DataFrame row and append it to the main DataFrame
-            row_df = pd.DataFrame([data_dict])
-            df = pd.concat([df, row_df], ignore_index=True)
+                    # else: keep the first occurrence, as in original code
+
+            if data_dict:
+                rows.append(data_dict)
+
+        identifier_cols = ['run', 'sequence', 'block', 'trace']
+
+        if rows:
+            df = pd.DataFrame(rows)
+        else:
+            # Ensure these columns exist even if empty
+            df = pd.DataFrame(columns=identifier_cols)
 
         # Ensure all missing values are filled with NaN and reorder columns placing identifiers first
-        identifier_cols = ['run', 'sequence', 'block', 'trace']
         other_cols = [col for col in df.columns if col not in identifier_cols]
         final_cols = identifier_cols + other_cols
         df = df.reindex(columns=final_cols)
-        
+
         return df
     
     def headerHandler(list_of_target_folders):

@@ -1,0 +1,8 @@
+{
+    "non_parity_switches": ["Dflat", "1090_STIRAP_ellipticity_angle", "probe_half_wave_offset_kz-1", "probe_quarter_wave_angle" ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "C"
+    ]
+}

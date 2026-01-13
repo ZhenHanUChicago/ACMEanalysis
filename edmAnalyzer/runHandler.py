@@ -152,7 +152,11 @@ class runHandler:
         self.load_aggregated_header()
         self.initialize_run_folder()
         self.set_binary_data_folder_paths([r"C:\ACMEdata\data"+ str(run).zfill(4) + "."+ str(sequence[0]).zfill(4)])
-        self.touch()
+        try:
+            self.touch()
+        except Exception as e:
+            print(f"Error during touch: {e}")
+        
 
     def calculation_pipeline(self, parallel = True, overwrite = False):
         self.calculate_bin_result(parallel=parallel, overwrite = overwrite)
@@ -476,89 +480,112 @@ class runHandler:
         return data_dest_folder, header_dest_folder
 
     def _process_header_df(self, df, folder_path):
-        
-        def process_group(group):
-            # For 'Lock Status' columns: set 0 if all zeros, else 1
-            for col in group.columns:
-                if 'Lock Status' in col:
-                    group[col] = 0 if (group[col] == 0).all() else 1
+        df = df.copy()
 
-            # For 'Ablation X' and 'Ablation Y', take the mode
-            if 'Ablation X' in group.columns:
-                group['Ablation X'] = group['Ablation X'].mode()[0] if not group['Ablation X'].mode().empty else None
-            if 'Ablation Y' in group.columns:
-                group['Ablation Y'] = group['Ablation Y'].mode()[0] if not group['Ablation Y'].mode().empty else None
+        # ---- Step 1: Fill missing values (vectorized) ----
+        id_cols = ['run', 'sequence', 'block', 'trace']
 
-            # For the rest of the columns, calculate the mean
-            for col in group.columns:
-                if col not in ['run', 'sequence', 'block', 'Ablation X', 'Ablation Y'] and 'Lock Status' not in col:
-                    group[col] = group[col].mean()
+        lock_cols = [col for col in df.columns if 'Lock Status' in col]
+        current_cols = [col for col in df.columns if col.endswith('Current')]
+        other_cols = [
+            col for col in df.columns
+            if col not in id_cols and col not in lock_cols and col not in current_cols
+        ]
 
-            return group.iloc[0]  # Return the reduced single row
+        # Lock Status: NaN -> 0
+        if lock_cols:
+            df[lock_cols] = df[lock_cols].fillna(0)
 
+        # "Current" columns: fill within (run, sequence, block)
+        if current_cols:
+            df[current_cols] = (
+                df.groupby(['run', 'sequence', 'block'], sort=False)[current_cols]
+                .transform(lambda x: x.ffill().bfill())
+            )
 
-        # Step 1: Fill missing values
-        # Fill 'Lock Status' columns with 0 if NaN, fill others with nearest value
-        for col in df.columns:
-            if 'Lock Status' in col:
-                df[col].fillna(0, inplace=True)
-            elif col.endswith('Current'):
-                # Fill with same run, sequence, block value or nearest
-                df[col] = df.groupby(['run', 'sequence', 'block'])[col].transform(lambda x: x.fillna(method='ffill').fillna(method='bfill'))
-            else:
-                df[col].fillna(method='ffill', inplace=True)
-                df[col].fillna(method='bfill', inplace=True)
+        # Other columns: global forward/backward fill
+        if other_cols:
+            df[other_cols] = df[other_cols].ffill().bfill()
 
+        # ---- Step 2: Drop unwanted columns ----
         drop_list = [
-        "Start Time", "End Time", "total switch time", "E-fields", "B-fields", 
-        "Freqs/Powers", "Waveplates", "dt", "Records per Trace", 
-        "DAQ Voltage Range", "Number of Channels", "Conversion Factor Individual", 
-        "Conversion Factor Summed", "Acquisition Rate", 
-        "Polarization Switching Frequency", "Polarization Switching Deadtime", 
-        "Polarization Switching Extra XY Delay", "Polarization Switching XY Swapped", 
-        "Scope Trigger Offset", "Current Sequence Code ID",'Ablation Mirror Position X', 'Ablation Mirror Position Y', "dBzdx Main (mA)", "dBzdx Sub (mA)", "Bx-1 up (mA)", "Bx-1 down (mA)", 
-        "Bx-2 up (mA)", "Bx-2 down (mA)", "Bx-3 up (mA)", "Bx-3 down (mA)", 
-        "Bx-4 up (mA)", "Bx-4 down (mA)", "By center top current (mA)", 
-        "By center bottom current (mA)", "dBydx up top current (mA)", 
-        "dBydx up bottom current (mA)", "dBydx down top current (mA)", 
-        "dBydx down bottom current (mA)", "By lattice (+++) (mA)", 
-        "By lattice (++-) (mA)", "By lattice (+-+) (mA)", "By lattice (+--) (mA)", 
-        "By lattice (-++) (mA)", "By lattice (-+-) (mA)", "By lattice (--+) (mA)", 
-        "By lattice (---) (mA)","Bz Left (+z) current (mA)","Bz Right (-z) current (mA)","field plate voltage V_1",	"field plate voltage V_2","guard ring voltage V_1","guard ring voltage V_2"
-    ]
-        # Step 2: Drop unwanted columns
-        contained_drop_list = [col for col in drop_list if col in df.columns]
-        df.drop(columns=contained_drop_list, inplace=True)
+            "Start Time", "End Time", "total switch time", "E-fields", "B-fields",
+            "Freqs/Powers", "Waveplates", "dt", "Records per Trace",
+            "DAQ Voltage Range", "Number of Channels", "Conversion Factor Individual",
+            "Conversion Factor Summed", "Acquisition Rate",
+            "Polarization Switching Frequency", "Polarization Switching Deadtime",
+            "Polarization Switching Extra XY Delay", "Polarization Switching XY Swapped",
+            "Scope Trigger Offset", "Current Sequence Code ID",
+            'Ablation Mirror Position X', 'Ablation Mirror Position Y',
+            "dBzdx Main (mA)", "dBzdx Sub (mA)", "Bx-1 up (mA)", "Bx-1 down (mA)",
+            "Bx-2 up (mA)", "Bx-2 down (mA)", "Bx-3 up (mA)", "Bx-3 down (mA)",
+            "Bx-4 up (mA)", "Bx-4 down (mA)", "By center top current (mA)",
+            "By center bottom current (mA)", "dBydx up top current (mA)",
+            "dBydx up bottom current (mA)", "dBydx down top current (mA)",
+            "dBydx down bottom current (mA)", "By lattice (+++) (mA)",
+            "By lattice (++-) (mA)", "By lattice (+-+) (mA)", "By lattice (+--) (mA)",
+            "By lattice (-++) (mA)", "By lattice (-+-) (mA)", "By lattice (--+) (mA)",
+            "By lattice (---) (mA)",
+            "Bz Left (+z) current (mA)", "Bz Right (-z) current (mA)",
+            "field plate voltage V_1", "field plate voltage V_2",
+            "guard ring voltage V_1", "guard ring voltage V_2",
+        ]
 
-        # Save the filled DataFrame to 'purged_aggregated_header.csv'
+        contained_drop_list = [col for col in drop_list if col in df.columns]
+        if contained_drop_list:
+            df.drop(columns=contained_drop_list, inplace=True)
+
+        # Save the filled + purged DataFrame
         purged_aggregated_header_path = os.path.join(folder_path, 'purged_aggregated_header.csv')
         df.to_csv(purged_aggregated_header_path, index=False)
-        parity_transformed_df = self._logging_channels_parity_transform(df, exemption_list=[], nr_only_list=[])
-        parity_transformed_df.to_csv(os.path.join(folder_path, 'parity_transformed_block_df.csv'), index=False)
-        # Step 3: Reduce by removing 'trace' axis
-        grouped_df = df.groupby(['run', 'sequence', 'block']).apply(lambda group: process_group(group)).reset_index(drop=True)
 
-        # Save the grouped DataFrame to 'block_header.csv'
+        # Parity transform (unchanged call)
+        parity_transformed_df = self._logging_channels_parity_transform(
+            df,
+            exemption_list=[],
+            nr_only_list=[]
+        )
+        parity_transformed_df.to_csv(
+            os.path.join(folder_path, 'parity_transformed_block_df.csv'),
+            index=False
+        )
+
+        # ---- Step 3: Reduce by removing 'trace' axis (vectorized agg) ----
+        group_keys = ['run', 'sequence', 'block']
+
+        def _lock_status_agg(s):
+            # 0 if all zeros, else 1
+            return 0 if (s == 0).all() else 1
+
+        def _mode_agg(s):
+            m = s.mode()
+            return m.iloc[0] if not m.empty else None
+
+        agg_dict = {}
+        for col in df.columns:
+            if col in group_keys:
+                # these are grouping keys, not aggregated
+                continue
+            if 'Lock Status' in col:
+                agg_dict[col] = _lock_status_agg
+            elif col in ['Ablation X', 'Ablation Y']:
+                agg_dict[col] = _mode_agg
+            else:
+                agg_dict[col] = 'mean'
+
+        grouped_df = (
+            df.groupby(group_keys, sort=False)
+            .agg(agg_dict)
+            .reset_index()
+        )
+
+        # Save the grouped (block-level) header DataFrame
         block_header_path = os.path.join(folder_path, 'block_header.csv')
         grouped_df.to_csv(block_header_path, index=False)
 
     def _logging_channels_parity_transform(self, df, exemption_list = [], nr_only_list = [], nochange_list = []):
         """
         Generate a new DataFrame with parity-transformed columns based on N, E, theta, B.
-
-        Parameters:
-        df : pd.DataFrame
-            The original dataframe with columns: run, sequence, block, trace, N, E, theta, B, and others.
-        exemption_list : list
-            List of column names to be excluded from parity transformation.
-        nr_only_list : list, optional
-            List of column names for which only non-reversing (nr) averaging is performed.
-        nochange_list : list, optional
-            List of column names to be included with simple averaging and keeping original names.
-
-        Returns:
-        pd.DataFrame
-            New dataframe grouped by (run, sequence, block) with parity-transformed columns.
         """
         if nr_only_list is None:
             nr_only_list = []
@@ -574,51 +601,60 @@ class runHandler:
 
         available_labels = [label for label in ['N', 'E', 'Q', 'B'] if label in df.columns]
 
-        transform_columns = [col for col in df.columns 
-                            if col not in exemption_list and col not in nochange_list and col not in ['run', 'sequence', 'block', 'trace', 'N', 'E', 'theta', 'B']]
+        transform_columns = [
+            col for col in df.columns
+            if col not in exemption_list
+            and col not in nochange_list
+            and col not in ['run', 'sequence', 'block', 'trace', 'N', 'E', 'theta', 'B']
+        ]
 
         group_keys = ['run', 'sequence', 'block']
         grouped = df.groupby(group_keys, sort=False)
 
+        # Precompute label subsets once
         subsets = []
         subset_names = []
         for r in range(0, len(available_labels) + 1):
             for comb in combinations(available_labels, r):
                 subsets.append(list(comb))
-                if len(comb) == 0:
-                    subset_names.append('nr')
-                else:
-                    subset_names.append(''.join(comb))
+                subset_names.append('nr' if len(comb) == 0 else ''.join(comb))
 
-        def process_group(name_group):
-            name, group = name_group
+        records = []
+
+        for name, group in grouped:
             base_row = {k: v for k, v in zip(group_keys, name)}
+
+            # Average N, E, Q, B per group
             for label in available_labels:
                 base_row[label] = group[label].mean()
 
+            # Precompute label products for this group
             group_label_products = {}
             for subset, subset_name in zip(subsets, subset_names):
                 if subset_name == 'nr':
-                    group_label_products[subset_name] = np.ones(len(group))
+                    # non-reversing: all +1
+                    group_label_products[subset_name] = np.ones(len(group), dtype=float)
                 else:
-                    group_label_products[subset_name] = group[subset].prod(axis=1)
+                    group_label_products[subset_name] = group[subset].prod(axis=1).to_numpy()
 
+            # Transform main columns
             for col in transform_columns:
                 if col in nr_only_list or not available_labels:
-                    weighted_avg = group[col].mean()
-                    base_row[f"{col}_nr"] = weighted_avg
+                    # Only non-reversing average
+                    base_row[f"{col}_nr"] = group[col].mean()
                 else:
+                    col_values = group[col].to_numpy()
                     for subset_name in subset_names:
-                        weighted_avg = (group[col] * group_label_products[subset_name]).mean()
+                        weights = group_label_products[subset_name]
+                        weighted_avg = (col_values * weights).mean()
                         base_row[f"{col}_{subset_name}"] = weighted_avg
 
+            # Columns we pass through, simply averaged
             for col in nochange_list:
                 if col in group.columns:
                     base_row[col] = group[col].mean()
 
-            return base_row
-
-        records = Parallel(n_jobs=-1)(delayed(process_group)(item) for item in grouped)
+            records.append(base_row)
 
         result_df = pd.DataFrame.from_records(records)
         return result_df
@@ -1047,22 +1083,84 @@ class runHandler:
             for binary_folder in self.binary_data_folder_paths:
                 bin_files = glob.glob(os.path.join(binary_folder, '*.bin'))
 
+                # =====================================================================
+                # >>> MODIFIED: Identify skipped files & pick lexicographically largest
+                # =====================================================================
+                skip_candidates = []
+                forced_file = None
+
+                if not overwrite:
+                    for bin_file in bin_files:
+                        file_name = os.path.basename(bin_file)
+                        run_num, seq_num, block_num, trace_offset = [int(x) for x in file_name.split('.')[:4]]
+
+                        if [run_num, seq_num] not in self.run_sequence_range:
+                            continue
+
+                        expected_output_name = f"binresult_{os.path.splitext(file_name)[0]}.pkl"
+
+                        all_exist = True
+                        for _, row in binpara_group.iterrows():
+                            output_folder = row['binresult_data_folder_path']
+                            output_file = os.path.join(output_folder, expected_output_name)
+                            if not os.path.exists(output_file):
+                                all_exist = False
+                                break
+
+                        if all_exist:
+                            skip_candidates.append(bin_file)
+
+                    # Pick lexicographically largest file to force calculation
+                    if skip_candidates:
+                        forced_file = max(skip_candidates)
+                        print(f"[Info] NOT skipping lexicographically largest file: {os.path.basename(forced_file)}")
+
+                # =====================================================================
+                # <<< MODIFIED
+                # =====================================================================
+
                 if parallel:
                     # Parallel processing
                     with ThreadPoolExecutor() as executor:
                         futures = []
                         for bin_file in bin_files:
-                            futures.append(executor.submit(process_bin_file, bin_file, binpara_json_path, binpara_group))
 
-                        # Handle results and errors gracefully
+                            # =========================================================
+                            # >>> MODIFIED: Skip all except forced_file
+                            # =========================================================
+                            if (not overwrite
+                                and bin_file in skip_candidates
+                                and bin_file != forced_file):
+                                print(f"Skipping {os.path.basename(bin_file)}: all outputs exist.")
+                                continue
+                            # <<< MODIFIED
+                            # =========================================================
+
+                            futures.append(
+                                executor.submit(process_bin_file, bin_file, binpara_json_path, binpara_group)
+                            )
+
                         for future in futures:
                             try:
-                                future.result()  # Raises any exceptions inside threads
+                                future.result()
                             except Exception as e:
                                 print(f"[Warning] Failed processing file in parallel: {e}")
+
                 else:
                     # Sequential processing
                     for bin_file in tqdm(bin_files, desc=f"Processing binpara {binpara}"):
+
+                        # =============================================================
+                        # >>> MODIFIED: Skip all except forced_file
+                        # =============================================================
+                        if (not overwrite
+                            and bin_file in skip_candidates
+                            and bin_file != forced_file):
+                            print(f"Skipping {os.path.basename(bin_file)}: all outputs exist.")
+                            continue
+                        # <<< MODIFIED
+                        # =============================================================
+
                         try:
                             process_bin_file(bin_file, binpara_json_path, binpara_group)
                         except Exception as e:

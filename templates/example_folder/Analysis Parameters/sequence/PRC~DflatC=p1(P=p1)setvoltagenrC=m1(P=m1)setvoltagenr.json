@@ -1,0 +1,12 @@
+{
+    "non_parity_switches": [
+        "Dflat",
+        "C=+1_(P=+1)_set_voltage_nr",
+        "C=-1_(P=-1)_set_voltage_nr"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "C"
+    ]
+}

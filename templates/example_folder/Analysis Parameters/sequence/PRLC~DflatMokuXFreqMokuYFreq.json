@@ -1,0 +1,13 @@
+{
+    "non_parity_switches": [
+        "Dflat",
+        "Moku_X_Freq",
+        "Moku_Y_Freq"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R",
+        "L",
+        "C"
+    ]
+}

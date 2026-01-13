@@ -1,0 +1,12 @@
+{
+    "non_parity_switches": [
+        "Dflat",
+        "D2",
+        "Moku_X_Drive",
+        "Moku_Y_Drive"
+    ],
+    "superblock_parity_switches": [
+        "P",
+        "R"
+    ]
+}
